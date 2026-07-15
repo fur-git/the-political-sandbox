@@ -123,7 +123,7 @@ class ParliamentEmulation {
             0,
             0,
         };
-        const array<Bill, 2> _availableBills = {{
+        const array<Bill, 3> _availableBills = {{
             {
                 "amendElectionRate",
                 { 0, -2, -1, -1, -1 },
