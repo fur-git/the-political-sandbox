@@ -175,9 +175,18 @@ class ParliamentEmulation {
         }
         void voteOnBill(Bill& bill) {
             VotesRequiredOption requiredVotes;
-            if (bill.type == BillType::Constitutional) { requiredVotes = checkHowManyVotesRequired(BillType::Constitutional); }
-            else if (bill.type == BillType::Simple) { requiredVotes = checkHowManyVotesRequired(BillType::Simple); }
-            else { cerr << "Something went wrong (the bill does not fit into any BillType category)" << endl; exit(EXIT_FAILURE); }
+            switch (bill.type) {
+                case BillType::Constitutional:
+                    requiredVotes = checkHowManyVotesRequired(BillType::Constitutional);
+                    break;
+                case BillType::Simple:
+                    requiredVotes = checkHowManyVotesRequired(BillType::Simple);
+                    break;
+                default:
+                    cerr << "Something unexpected happened (the bill is neither of the BillType categories)" << endl;
+                    exit(EXIT_FAILURE);
+                    break;
+            }
             uint16_t ayeVotes = 0;
             uint16_t abstainVotes = 0;
             uint16_t nayVotes = 0;
