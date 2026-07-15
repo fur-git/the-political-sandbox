@@ -133,7 +133,7 @@ class ParliamentEmulation {
                 "amendVotesRequirementForConstitutional",
                 { 0, -2, -1, -1, -1 },
                 BillType::Constitutional,
-            }
+            },
             {
                 "amendVotesRequirementForSimple",
                 { 0, -1, -1, -1, -1 },
