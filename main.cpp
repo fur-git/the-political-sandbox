@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <optional>
+#include <algorithm>
 
 using namespace std;
 
@@ -17,7 +18,8 @@ const string MENU = R"(
 2. Exit.
 3. Propose a bill.
 4. See pending bills.
-5. DEBUG: Skip to elections.
+5. See parties approval rates.
+6. DEBUG: Skip to elections.
 
 
 Elections in )";
@@ -91,9 +93,19 @@ class ParliamentEmulation {
             uint16_t electionRate;
             VotesRequiredOption votesRequiredForConstitutionalBills;
             VotesRequiredOption votesRequiredForSimpleBills;
+            vector<PoliticalParty> outlawedPoliticalParties;
             void editElectionRate(uint16_t newRate) { electionRate = newRate; }
             void editVotesRequiredForConstitutionalBills(VotesRequiredOption newRequirement) { votesRequiredForConstitutionalBills = newRequirement; }
             void editVotesRequiredForSimpleBills(VotesRequiredOption newRequirement) { votesRequiredForSimpleBills = newRequirement; }
+            void addAnOutlawedPoliticalParty(PoliticalParty& party) { outlawedPoliticalParties.push_back(party); }
+            void removeAnOutlawedPoliticalParty(PoliticalParty& party) {
+                for (unsigned char i = 0; i < outlawedPoliticalParties.size(); i++) {
+                    if (outlawedPoliticalParties[i].name == party.name) {
+                        outlawedPoliticalParties.erase(outlawedPoliticalParties.begin() + i);
+                        return;
+                    } 
+                }
+            }
         };
         const Ideology _nationalism = {
             3,
@@ -123,7 +135,7 @@ class ParliamentEmulation {
             0,
             0,
         };
-        const array<Bill, 3> _availableBills = {{
+        const array<Bill, 4> _availableBills = {{
             {
                 "amendElectionRate",
                 { 0, -2, -1, -1, -1 },
@@ -138,9 +150,15 @@ class ParliamentEmulation {
                 "amendVotesRequirementForSimple",
                 { 0, -1, -1, -1, -1 },
                 BillType::Constitutional,
+            },
+            {
+                "outlawPoliticalParty",
+                { 0, -3, -1, -2, -2 },
+                BillType::Constitutional,
             }
         }};
         vector<PoliticalParty> _politicalParties;
+        vector<PoliticalParty> _outlawedPoliticalParties;
         vector<Bill> _pendingBills;
         PoliticalParty* _playerParty;
         Constitution _theConsitution;
@@ -148,6 +166,7 @@ class ParliamentEmulation {
         uint16_t _currentTurn;
         uint16_t _electionTurn;
         bool _madeAnActionThisTurn;
+        bool _submittedBillThisTurn;
         static void inputAnythingToContinue(string& buffer) {
             cout << "Input anything to continue" << endl;
             cin >> buffer;
@@ -173,9 +192,70 @@ class ParliamentEmulation {
             else if (bill.name == _availableBills[1].name) { _pendingBills.push_back(bill); }
             else if (bill.name == _availableBills[2].name) { _pendingBills.push_back(bill); }
             else { cerr << "Something unexpected happened (the bill name doesn't fit into any available bills)" << endl; }
+            _submittedBillThisTurn = true;
+            _playerParty->approvalPercentage += 2;
+        }
+        void displayPartyApprovalRates(void) {
+            for (PoliticalParty& party : _politicalParties) {
+                cout << party.name << ": " << party.approvalPercentage << "%" << endl;
+            }
+        }
+        bool checkIfApprovalRatesAreRight(void) {
+            float sumFloat = 0;
+            for (PoliticalParty& party : _politicalParties) { sumFloat += party.approvalPercentage; }
+            sumFloat = round(sumFloat);
+            if (sumFloat == 100) { return true; }
+            else { return false; }
+        }
+        void correctifyApprovalRates(void) {
+            bool wrong = true;
+            float sum = 0;
+            for (PoliticalParty& party : _politicalParties) { sum += party.approvalPercentage; }
+            if (sum > 100) {
+                while (wrong) {
+                    if (checkIfApprovalRatesAreRight()) { wrong = false; }
+                    else {
+                        uint8_t highestApprovalRatePartyIndex = 0;
+                        float highestApprovalRate = 0;
+                        for (unsigned char i = 0; i < _politicalParties.size(); i++) {
+                            if (_politicalParties[i].name == _playerParty->name) { continue; }
+                            if (_politicalParties[i].approvalPercentage > highestApprovalRate) {
+                                highestApprovalRate = _politicalParties[i].approvalPercentage;
+                                highestApprovalRatePartyIndex = i;
+                            }
+                        }
+                        for (unsigned short i = 0; i < 10000; i++) {
+                            _politicalParties[highestApprovalRatePartyIndex].approvalPercentage -= 0.01;
+                            if (checkIfApprovalRatesAreRight()) { break; }
+                        }
+                    }
+                }
+            }
+            else { 
+                while (wrong) {
+                    if (checkIfApprovalRatesAreRight()) { wrong = false; }
+                    else {
+                        uint8_t lowestApprovalRatePartyIndex = 0;
+                        float lowestApprovalRate = 100;
+                        for (unsigned char i = 0; i < _politicalParties.size(); i++) {
+                            if (_politicalParties[i].name == _playerParty->name) { continue; }
+                            if (_politicalParties[i].approvalPercentage < lowestApprovalRate) {
+                                lowestApprovalRate = _politicalParties[i].approvalPercentage;
+                                lowestApprovalRatePartyIndex = i;
+                            }
+                        }
+                        for (unsigned short i = 0; i < 10000; i++) {
+                            _politicalParties[lowestApprovalRatePartyIndex].approvalPercentage += 0.01;
+                            if (checkIfApprovalRatesAreRight()) { break; }
+                        }
+                    }
+                }
+            }
         }
         void startElections(void) {
-            for (PoliticalParty& party : _politicalParties) { party.parliamentSeats = _totalParlimentarySeats * (party.approvalPercentage / 100); }
+            for (PoliticalParty& party : _politicalParties) {
+                party.parliamentSeats = _totalParlimentarySeats * (party.approvalPercentage / 100);
+            }
             _electionTurn += _theConsitution.electionRate;
         }
         void voteOnBill(Bill& bill) {
@@ -258,6 +338,7 @@ class ParliamentEmulation {
             vector<string> possiblePartyNames = {"Justice Party", "Unity Party", "Republican Party", "Green Party"};
             _currentTurn = 1;
             _madeAnActionThisTurn = false;
+            _submittedBillThisTurn = false;
             _totalParlimentarySeats = totalParlimentarySeats;
             _theConsitution = { 48, VotesRequiredOption::TwoThirds, VotesRequiredOption::RelativeMajority };
             _electionTurn = _theConsitution.electionRate;
@@ -304,6 +385,8 @@ class ParliamentEmulation {
             string userInput;
             while (!stopFlag) {
                 system("clear");
+                _submittedBillThisTurn = false;
+                if (!checkIfApprovalRatesAreRight()) { correctifyApprovalRates(); }
                 if (_electionTurn == _currentTurn) {
                     startElections();
                     cout << "Elections concluded" << endl;
@@ -329,9 +412,8 @@ class ParliamentEmulation {
                     else { cout << _pendingBills[0].name << endl; }
                     inputAnythingToContinue(userInput);
                 }
-                else if (userInput == "5") {
-                    _currentTurn = _electionTurn - 1;
-                }
+                else if (userInput == "5") { displayPartyApprovalRates(); inputAnythingToContinue(userInput); }
+                else if (userInput == "6") { _currentTurn = _electionTurn - 1; }
                 else if (_madeAnActionThisTurn) { cout << "You cannot make any other actions this turn" << endl; inputAnythingToContinue(userInput); }
                 else if (userInput == "3") {
                     if (!_pendingBills.empty()) { cout << "A bill is already pending" << endl; inputAnythingToContinue(userInput); }
@@ -374,6 +456,7 @@ class ParliamentEmulation {
                     }
                 }
                 else { cout << "Invalid option" << endl; inputAnythingToContinue(userInput); }
+                if (!_submittedBillThisTurn && _pendingBills.empty()) { _playerParty->approvalPercentage -= 0.5; }
             }
         }
 };
