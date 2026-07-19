@@ -21,8 +21,7 @@ const string MENU = R"(
 5. See parties approval rates.
 6. DEBUG: Skip to elections.
 
-
-Elections in )";
+)";
 
 const string INPUT = ">>> ";
 
@@ -31,6 +30,7 @@ const string PROPOSE_BILL = R"(
 1. Amend election rate.
 2. Amend votes required for constitutional bills.
 3. Amend votes required for simple bills.
+4. Amend electoral system.
 
 )";
 
@@ -51,6 +51,12 @@ const string VOTES_REQUIRED_OPTIONS = R"(
 
 )";
 
+const string ELECTORAL_SYSTEM_OPTIONS = R"(
+
+1. Proportional.
+2. Majoritarian.
+
+)";
 
 class ParliamentEmulation {
     private:
@@ -72,6 +78,11 @@ class ParliamentEmulation {
             ThreeFourths,
             PLACEHOLDER,
         };
+        enum class ElectoralSystemOption {
+            Proportional,
+            Majoritarian,
+            PLACEHOLDER,
+        };
         struct Ideology {
             array<int8_t, 5> preferences;
         };
@@ -88,15 +99,18 @@ class ParliamentEmulation {
             uint16_t votingTurn;
             uint16_t optionalNumerical;
             VotesRequiredOption optionalVotesRequired;
+            ElectoralSystemOption optionalElectoralSystem;
         };
         struct Constitution {
             uint16_t electionRate;
             VotesRequiredOption votesRequiredForConstitutionalBills;
             VotesRequiredOption votesRequiredForSimpleBills;
+            ElectoralSystemOption electoralSystem;
             vector<PoliticalParty> outlawedPoliticalParties;
             void editElectionRate(uint16_t newRate) { electionRate = newRate; }
             void editVotesRequiredForConstitutionalBills(VotesRequiredOption newRequirement) { votesRequiredForConstitutionalBills = newRequirement; }
             void editVotesRequiredForSimpleBills(VotesRequiredOption newRequirement) { votesRequiredForSimpleBills = newRequirement; }
+            void editElectoralSystem(ElectoralSystemOption newSystem) { electoralSystem = newSystem; }
             void addAnOutlawedPoliticalParty(PoliticalParty& party) { outlawedPoliticalParties.push_back(party); }
             void removeAnOutlawedPoliticalParty(PoliticalParty& party) {
                 for (unsigned char i = 0; i < outlawedPoliticalParties.size(); i++) {
@@ -109,7 +123,7 @@ class ParliamentEmulation {
         };
         const Ideology _nationalism = {
             3,
-            -2,
+            -3,
             3,
             -1,
             -1,
@@ -135,7 +149,7 @@ class ParliamentEmulation {
             0,
             0,
         };
-        const array<Bill, 4> _availableBills = {{
+        const array<Bill, 5> _availableBills = {{
             {
                 "amendElectionRate",
                 { 0, -2, -1, -1, -1 },
@@ -149,6 +163,11 @@ class ParliamentEmulation {
             {
                 "amendVotesRequirementForSimple",
                 { 0, -1, -1, -1, -1 },
+                BillType::Constitutional,
+            },
+            {
+                "amendElectoralSystem",
+                { 0, -3, -2, -2, -2 },
                 BillType::Constitutional,
             },
             {
@@ -178,20 +197,29 @@ class ParliamentEmulation {
             else { cerr << "Something unexpected happened (the BillType is not constitutional nor simple)" << endl; exit(EXIT_FAILURE); }
         }
         void nextTurn(void) { _currentTurn++; _madeAnActionThisTurn = false; }
-        void proposeBill(Bill bill, optional<uint16_t> valueNumerical, optional<VotesRequiredOption> valueVotesRequired) {
+        void proposeBill(
+                Bill bill,
+                optional<uint16_t> valueNumerical,
+                optional<VotesRequiredOption> valueVotesRequired,
+                optional<ElectoralSystemOption> valueElectoralSystem
+            ) {
             bool isAValidBill = false;
             uint16_t actualValue = valueNumerical.value_or(0);
             VotesRequiredOption actualVotesRequired = valueVotesRequired.value_or(VotesRequiredOption::PLACEHOLDER);
+            ElectoralSystemOption actualElectoralSystem = valueElectoralSystem.value_or(ElectoralSystemOption::PLACEHOLDER);
             for (unsigned char i = 0; i < _availableBills.size(); i++) { if (bill.name == _availableBills[i].name) { isAValidBill = true; } }
             if (!isAValidBill) { cerr << "Not a valid bill" << endl; return; }
             uint16_t votingTurn = _currentTurn + 4;
             bill.votingTurn = votingTurn;
             bill.optionalNumerical = actualValue;
             bill.optionalVotesRequired = actualVotesRequired;
+            bill.optionalElectoralSystem = actualElectoralSystem;
             if (bill.name == _availableBills[0].name) { _pendingBills.push_back(bill); }
             else if (bill.name == _availableBills[1].name) { _pendingBills.push_back(bill); }
             else if (bill.name == _availableBills[2].name) { _pendingBills.push_back(bill); }
+            else if (bill.name == _availableBills[3].name) { _pendingBills.push_back(bill); }
             else { cerr << "Something unexpected happened (the bill name doesn't fit into any available bills)" << endl; }
+            _madeAnActionThisTurn = true;
             _submittedBillThisTurn = true;
             _playerParty->approvalPercentage += 2;
         }
@@ -252,43 +280,72 @@ class ParliamentEmulation {
                 }
             }
         }
-        void startElections(void) {
-            for (PoliticalParty& party : _politicalParties) {
-                party.parliamentSeats = _totalParlimentarySeats * (party.approvalPercentage / 100);
+        void startElections(ElectoralSystemOption electoralSystem) {
+            switch (electoralSystem) {
+                case ElectoralSystemOption::Proportional: {
+                    for (PoliticalParty& party : _politicalParties) {
+                        party.parliamentSeats = _totalParlimentarySeats * (party.approvalPercentage / 100);
+                    }
+                    break;
+                }
+                case ElectoralSystemOption::Majoritarian: {
+                    float highestApprovalRate = 0;
+                    uint8_t highestApprovalRatePartyIndex = 0;
+                    for (unsigned char i = 0; i < _politicalParties.size(); i++) {
+                        _politicalParties[i].parliamentSeats = 0;
+                        if (_politicalParties[i].approvalPercentage > highestApprovalRate) {
+                            highestApprovalRate = _politicalParties[i].approvalPercentage;
+                            highestApprovalRatePartyIndex = i;
+                        }
+                    }
+                    _politicalParties[highestApprovalRatePartyIndex].parliamentSeats = _totalParlimentarySeats;
+                    break;
+                }
+                default: {
+                    cerr << "Something unexpected happened (the electoral system does not exist)" << endl; exit(EXIT_FAILURE);
+                    break;
+                }
             }
             _electionTurn += _theConsitution.electionRate;
         }
         void voteOnBill(Bill& bill) {
             VotesRequiredOption requiredVotes;
             switch (bill.type) {
-                case BillType::Constitutional:
+                case BillType::Constitutional: {
                     requiredVotes = checkHowManyVotesRequired(BillType::Constitutional);
                     break;
-                case BillType::Simple:
+                }
+                case BillType::Simple: {
                     requiredVotes = checkHowManyVotesRequired(BillType::Simple);
                     break;
-                default:
+                }
+                default: {
                     cerr << "Something unexpected happened (the bill is neither of the BillType categories)" << endl;
                     exit(EXIT_FAILURE);
                     break;
+                }
             }
             uint16_t ayeVotes = 0;
             uint16_t abstainVotes = 0;
             uint16_t nayVotes = 0;
             string userInput;
-            bool validInput = false;
-            while (!validInput) {
-                cout << VOTING << endl;
-                cout << INPUT;
-                cout.flush();
-                cin >> userInput;
-                if (userInput == "1") { ayeVotes += _playerParty->parliamentSeats; validInput = true; }
-                else if (userInput == "2") { abstainVotes += _playerParty->parliamentSeats; validInput = true; }
-                else if (userInput == "3") { nayVotes += _playerParty->parliamentSeats; validInput = true; }
-                else { cout << "Invalid option" << endl; }
+            if (_playerParty->parliamentSeats != 0) {
+                bool validInput = false;
+                while (!validInput) {
+                    cout << VOTING << endl;
+                    cout << INPUT;
+                    cout.flush();
+                    cin >> userInput;
+                    if (userInput == "1") { ayeVotes += _playerParty->parliamentSeats; validInput = true; }
+                    else if (userInput == "2") { abstainVotes += _playerParty->parliamentSeats; validInput = true; }
+                    else if (userInput == "3") { nayVotes += _playerParty->parliamentSeats; validInput = true; }
+                    else { cout << "Invalid option" << endl; }
+                }
             }
+            else { cout << "You cannot vote" << endl; inputAnythingToContinue(userInput); }
             for (PoliticalParty& party : _politicalParties) {
                 if (&party == _playerParty) { continue; }
+                if (party.parliamentSeats == 0) { continue; }
                 uint8_t ayeCount = 0;
                 uint8_t abstainCount = 0;
                 uint8_t nayCount = 0;
@@ -304,28 +361,34 @@ class ParliamentEmulation {
             }
             bool isPassed = false;
             switch (requiredVotes) {
-                case VotesRequiredOption::RelativeMajority:
+                case VotesRequiredOption::RelativeMajority: {
                     if (ayeVotes > nayVotes) { isPassed = true; }
                     break;
-                case VotesRequiredOption::FiftyPercentPlusOne:
+                }
+                case VotesRequiredOption::FiftyPercentPlusOne: {
                     if (ayeVotes >= _totalParlimentarySeats / 2 + 1) { isPassed = true; }
                     break;
-                case VotesRequiredOption::TwoThirds:
+                }
+                case VotesRequiredOption::TwoThirds: {
                     if (ayeVotes >= _totalParlimentarySeats / 3 * 2) { isPassed = true; }
                     break;
-                case VotesRequiredOption::ThreeFourths:
+                }
+                case VotesRequiredOption::ThreeFourths: {
                     if (ayeVotes >= _totalParlimentarySeats / 4 * 3) { isPassed = true; }
                     break;
-                default:
+                }
+                default: {
                     cerr << "Something went wrong (the required votes don't match any options)" << endl;
                     exit(EXIT_FAILURE);
                     break;
+                }
             }
             if (isPassed) {
                 cout << "The bill has been PASSED with the votes of " << ayeVotes << "-" << abstainVotes << "-" << nayVotes << " (Aye-Abstain-Nay)" << endl;
                 if (bill.name == _availableBills[0].name) { _theConsitution.editElectionRate(bill.optionalNumerical); }
                 else if (bill.name == _availableBills[1].name) { _theConsitution.editVotesRequiredForConstitutionalBills(bill.optionalVotesRequired); }
                 else if (bill.name == _availableBills[2].name) { _theConsitution.editVotesRequiredForSimpleBills(bill.optionalVotesRequired); }
+                else if (bill.name == _availableBills[3].name) { _theConsitution.editElectoralSystem(bill.optionalElectoralSystem); }
                 else { cerr << "Something went wrong (bill is non-existent)" << endl; exit(EXIT_FAILURE); }
             } else {
                 cout << "The bill has been REJECTED with the votes of " << ayeVotes << "-" << abstainVotes << "-" << nayVotes << " (Aye-Abstain-Nay)" << endl;
@@ -340,7 +403,12 @@ class ParliamentEmulation {
             _madeAnActionThisTurn = false;
             _submittedBillThisTurn = false;
             _totalParlimentarySeats = totalParlimentarySeats;
-            _theConsitution = { 48, VotesRequiredOption::TwoThirds, VotesRequiredOption::RelativeMajority };
+            _theConsitution = {
+                48,
+                VotesRequiredOption::TwoThirds,
+                VotesRequiredOption::RelativeMajority,
+                ElectoralSystemOption::Proportional
+            };
             _electionTurn = _theConsitution.electionRate;
             for (unsigned char i = 0; i < amountOfParties; i++) {
                 const uint8_t partyNameIndex = rand() % possiblePartyNames.size();
@@ -349,22 +417,27 @@ class ParliamentEmulation {
                 const uint8_t partyIdeologyIndex = rand() % 4;
                 Ideology partyIdeology;
                 switch (partyIdeologyIndex) {
-                    case 0:
+                    case 0: {
                         partyIdeology = _nationalism;
                         break;
-                    case 1:
+                    }
+                    case 1: {
                         partyIdeology = _republican;
                         break;
-                    case 2:
+                    }
+                    case 2: {
                         partyIdeology = _anarchist;
                         break;
-                    case 3:
+                    }
+                    case 3: {
                         partyIdeology = _nonAligned;
                         break;
-                    default:
+                    }
+                    default: {
                         cerr << "Something unexpected happened (something other than 0-3 got generated in ideology generation)" << endl;
                         exit(EXIT_FAILURE);
                         break;
+                    }
                 }
                 float partyApprovalPercentage = 100.0f / amountOfParties;
                 partyApprovalPercentage = round(partyApprovalPercentage * 100) / 100;
@@ -388,7 +461,7 @@ class ParliamentEmulation {
                 _submittedBillThisTurn = false;
                 if (!checkIfApprovalRatesAreRight()) { correctifyApprovalRates(); }
                 if (_electionTurn == _currentTurn) {
-                    startElections();
+                    startElections(_theConsitution.electoralSystem);
                     cout << "Elections concluded" << endl;
                     for (PoliticalParty& party : _politicalParties) { cout << party.name << " now has " << party.parliamentSeats << " seats in the parliament" << endl; }
                     inputAnythingToContinue(userInput);
@@ -401,7 +474,13 @@ class ParliamentEmulation {
                 system("clear");
                 cout << "Current turn is " << _currentTurn << endl;
                 cout << "Your party is " << _playerParty->name << endl;
-                cout << MENU << _electionTurn - _currentTurn << " turns" << endl;
+                cout << MENU << endl;
+                cout << "Electoral system: "
+                     << (_theConsitution.electoralSystem == ElectoralSystemOption::Proportional
+                         ? "Proportional"
+                         : "Majoritarian")
+                     << endl;
+                cout << "Elections in " << _electionTurn - _currentTurn << " turns" << endl;
                 cout << INPUT;
                 cout.flush();
                 cin >> userInput;
@@ -426,18 +505,50 @@ class ParliamentEmulation {
                             cout << "Enter the new rate: ";
                             cout.flush();
                             cin >> userInput;
-                            proposeBill(_availableBills[0], stoi(userInput), nullopt);
-                            _madeAnActionThisTurn = true;
+                            proposeBill(
+                                _availableBills[0],
+                                stoi(userInput),
+                                nullopt,
+                                nullopt
+                            );
                         }
                         else if (userInput == "2") {
                             cout << VOTES_REQUIRED_OPTIONS << endl;
                             cout << INPUT;
                             cout.flush();
                             cin >> userInput;
-                            if (userInput == "1") { proposeBill(_availableBills[1], nullopt, VotesRequiredOption::RelativeMajority); }
-                            else if (userInput == "2") { proposeBill(_availableBills[1], nullopt, VotesRequiredOption::FiftyPercentPlusOne); }
-                            else if (userInput == "3") { proposeBill(_availableBills[1], nullopt, VotesRequiredOption::TwoThirds); }
-                            else if (userInput == "4") { proposeBill(_availableBills[1], nullopt, VotesRequiredOption::ThreeFourths); }
+                            if (userInput == "1") {
+                                proposeBill(
+                                    _availableBills[1],
+                                    nullopt,
+                                    VotesRequiredOption::RelativeMajority,
+                                    nullopt
+                                );
+                            }
+                            else if (userInput == "2") {
+                                proposeBill(
+                                    _availableBills[1],
+                                    nullopt,
+                                    VotesRequiredOption::FiftyPercentPlusOne,
+                                    nullopt
+                                );
+                            }
+                            else if (userInput == "3") {
+                                proposeBill(
+                                    _availableBills[1],
+                                    nullopt,
+                                    VotesRequiredOption::TwoThirds,
+                                    nullopt
+                                );
+                            }
+                            else if (userInput == "4") {
+                                proposeBill(
+                                    _availableBills[1],
+                                    nullopt,
+                                    VotesRequiredOption::ThreeFourths,
+                                    nullopt
+                                );
+                            }
                             else { cout << "Invalid option" << endl; inputAnythingToContinue(userInput); }
                         }
                         else if (userInput == "3") {
@@ -445,10 +556,61 @@ class ParliamentEmulation {
                             cout << INPUT;
                             cout.flush();
                             cin >> userInput;
-                            if (userInput == "1") { proposeBill(_availableBills[2], nullopt, VotesRequiredOption::RelativeMajority); }
-                            else if (userInput == "2") { proposeBill(_availableBills[2], nullopt, VotesRequiredOption::FiftyPercentPlusOne); }
-                            else if (userInput == "3") { proposeBill(_availableBills[2], nullopt, VotesRequiredOption::TwoThirds); }
-                            else if (userInput == "4") { proposeBill(_availableBills[2], nullopt, VotesRequiredOption::ThreeFourths); }
+                            if (userInput == "1") {
+                                proposeBill(
+                                    _availableBills[2],
+                                    nullopt,
+                                    VotesRequiredOption::RelativeMajority,
+                                    nullopt
+                                );
+                            }
+                            else if (userInput == "2") {
+                                proposeBill(
+                                    _availableBills[2],
+                                    nullopt,
+                                    VotesRequiredOption::FiftyPercentPlusOne,
+                                    nullopt
+                                );
+                            }
+                            else if (userInput == "3") {
+                                proposeBill(
+                                    _availableBills[2],
+                                    nullopt,
+                                    VotesRequiredOption::TwoThirds,
+                                    nullopt
+                                );
+                            }
+                            else if (userInput == "4") {
+                                proposeBill(
+                                    _availableBills[2],
+                                    nullopt,
+                                    VotesRequiredOption::ThreeFourths,
+                                    nullopt
+                                );
+                            }
+                            else { cout << "Invalid option" << endl; inputAnythingToContinue(userInput); }
+                        }
+                        else if (userInput == "4") {
+                            cout << ELECTORAL_SYSTEM_OPTIONS << endl;
+                            cout << INPUT;
+                            cout.flush();
+                            cin >> userInput;
+                            if (userInput == "1") {
+                                proposeBill(
+                                    _availableBills[3],
+                                    nullopt,
+                                    nullopt,
+                                    ElectoralSystemOption::Proportional
+                                );
+                            }
+                            else if (userInput == "2") {
+                                proposeBill(
+                                    _availableBills[3],
+                                    nullopt,
+                                    nullopt,
+                                    ElectoralSystemOption::Majoritarian
+                                );
+                            }
                             else { cout << "Invalid option" << endl; inputAnythingToContinue(userInput); }
                         }
                         else { cout << "Invalid option" << endl; }
