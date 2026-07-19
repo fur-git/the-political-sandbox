@@ -33,6 +33,7 @@ const string PROPOSE_BILL = R"(
 4. Amend electoral system.
 5. Outlaw a political party.
 6. Legalize a political party.
+7. Amend form of government.
 
 )";
 
@@ -41,6 +42,13 @@ const string VOTING = R"(
 1. Aye.
 2. Abstain.
 3. Nay.
+
+)";
+
+const string PRESIDENTIAL_DECISION = R"(
+
+1. Sign the bill.
+2. Reject the bill.
 
 )";
 
@@ -57,6 +65,13 @@ const string ELECTORAL_SYSTEM_OPTIONS = R"(
 
 1. Proportional.
 2. Majoritarian.
+
+)";
+
+const string GOVERNMENT_FORM_OPTIONS = R"(
+
+1. Republic.
+2. Monarchy.
 
 )";
 
@@ -85,6 +100,11 @@ class ParliamentEmulation {
             Majoritarian,
             PLACEHOLDER,
         };
+        enum class GovernmentFormOption {
+            Republic,
+            Monarchy,
+            PLACEHOLDER,
+        };
         struct Ideology {
             array<int8_t, 5> preferences;
         };
@@ -103,16 +123,19 @@ class ParliamentEmulation {
             uint16_t optionalNumerical;
             VotesRequiredOption optionalVotesRequired;
             ElectoralSystemOption optionalElectoralSystem;
+            GovernmentFormOption optionalGovernmentForm;
         };
         struct Constitution {
             uint16_t electionRate;
             VotesRequiredOption votesRequiredForConstitutionalBills;
             VotesRequiredOption votesRequiredForSimpleBills;
             ElectoralSystemOption electoralSystem;
+            GovernmentFormOption governmentForm;
             void editElectionRate(uint16_t newRate) { electionRate = newRate; }
             void editVotesRequiredForConstitutionalBills(VotesRequiredOption newRequirement) { votesRequiredForConstitutionalBills = newRequirement; }
             void editVotesRequiredForSimpleBills(VotesRequiredOption newRequirement) { votesRequiredForSimpleBills = newRequirement; }
             void editElectoralSystem(ElectoralSystemOption newSystem) { electoralSystem = newSystem; }
+            void editGovernmentForm(GovernmentFormOption newForm) { governmentForm = newForm; }
         };
         const Ideology _nationalism = {
             3,
@@ -142,7 +165,7 @@ class ParliamentEmulation {
             0,
             0,
         };
-        const array<Bill, 6> _availableBills = {{
+        const array<Bill, 7> _availableBills = {{
             {
                 "amendElectionRate",
                 { 0, -2, -1, -1, -1 },
@@ -172,11 +195,17 @@ class ParliamentEmulation {
                 "legalizePoliticalParty",
                 { 0, 3, 1, 2, 2 },
                 BillType::Constitutional,
+            },
+            {
+                "amendGovernmentForm",
+                { 0, -3, -2, -2, -2 },
+                BillType::Constitutional,
             }
         }};
         vector<PoliticalParty> _politicalParties;
         vector<Bill> _pendingBills;
         PoliticalParty* _playerParty;
+        PoliticalParty* _headOfGovernmentParty;
         Constitution _theConsitution;
         uint16_t _totalParlimentarySeats;
         uint16_t _currentTurn;
@@ -196,16 +225,30 @@ class ParliamentEmulation {
         void makePoliticalPartyOutlawed(PoliticalParty& party) { party.isOutlawed = true; }
         void makePoliticalPartyLegal(PoliticalParty& party) { party.isOutlawed = false; }
         void nextTurn(void) { _currentTurn++; _madeAnActionThisTurn = false; }
+        void electPresident(void) {
+            uint8_t highestApprovalRatePartyIndex = 0;
+            float highestApprovalRate = 0;
+            for (unsigned char i = 0; i < _politicalParties.size(); i++) {
+                if (_politicalParties[i].isOutlawed) { continue; }
+                if (_politicalParties[i].approvalPercentage > highestApprovalRate) {
+                    highestApprovalRate = _politicalParties[i].approvalPercentage;
+                    highestApprovalRatePartyIndex = i;
+                }
+            }
+            _headOfGovernmentParty = &_politicalParties[highestApprovalRatePartyIndex];
+        }
         void proposeBill(
                 Bill bill,
                 optional<uint16_t> valueNumerical,
                 optional<VotesRequiredOption> valueVotesRequired,
-                optional<ElectoralSystemOption> valueElectoralSystem
+                optional<ElectoralSystemOption> valueElectoralSystem,
+                optional<GovernmentFormOption> valueGovernmentForm
             ) {
             bool isAValidBill = false;
             uint16_t actualValue = valueNumerical.value_or(0);
             VotesRequiredOption actualVotesRequired = valueVotesRequired.value_or(VotesRequiredOption::PLACEHOLDER);
             ElectoralSystemOption actualElectoralSystem = valueElectoralSystem.value_or(ElectoralSystemOption::PLACEHOLDER);
+            GovernmentFormOption actualGovernmentForm = valueGovernmentForm.value_or(GovernmentFormOption::PLACEHOLDER);
             for (unsigned char i = 0; i < _availableBills.size(); i++) { if (bill.name == _availableBills[i].name) { isAValidBill = true; } }
             if (!isAValidBill) { cerr << "Not a valid bill" << endl; return; }
             uint16_t votingTurn = _currentTurn + 4;
@@ -213,12 +256,14 @@ class ParliamentEmulation {
             bill.optionalNumerical = actualValue;
             bill.optionalVotesRequired = actualVotesRequired;
             bill.optionalElectoralSystem = actualElectoralSystem;
+            bill.optionalGovernmentForm = actualGovernmentForm;
             if (bill.name == _availableBills[0].name) { _pendingBills.push_back(bill); }
             else if (bill.name == _availableBills[1].name) { _pendingBills.push_back(bill); }
             else if (bill.name == _availableBills[2].name) { _pendingBills.push_back(bill); }
             else if (bill.name == _availableBills[3].name) { _pendingBills.push_back(bill); }
             else if (bill.name == _availableBills[4].name) { _pendingBills.push_back(bill); }
             else if (bill.name == _availableBills[5].name) { _pendingBills.push_back(bill); }
+            else if (bill.name == _availableBills[6].name) { _pendingBills.push_back(bill); }
             else { cerr << "Something unexpected happened (the bill name doesn't fit into any available bills)" << endl; }
             _madeAnActionThisTurn = true;
             _submittedBillThisTurn = true;
@@ -320,6 +365,7 @@ class ParliamentEmulation {
                     break;
                 }
             }
+            if (_theConsitution.governmentForm == GovernmentFormOption::Republic) { electPresident(); }
             _electionTurn += _theConsitution.electionRate;
         }
         void voteOnBill(Bill& bill) {
@@ -399,27 +445,66 @@ class ParliamentEmulation {
             }
             if (isPassed) {
                 cout << "The bill has been PASSED with the votes of " << ayeVotes << "-" << abstainVotes << "-" << nayVotes << " (Aye-Abstain-Nay)" << endl;
-                if (bill.name == _availableBills[0].name) { _theConsitution.editElectionRate(bill.optionalNumerical); }
-                else if (bill.name == _availableBills[1].name) { _theConsitution.editVotesRequiredForConstitutionalBills(bill.optionalVotesRequired); }
-                else if (bill.name == _availableBills[2].name) { _theConsitution.editVotesRequiredForSimpleBills(bill.optionalVotesRequired); }
-                else if (bill.name == _availableBills[3].name) { _theConsitution.editElectoralSystem(bill.optionalElectoralSystem); }
-                else if (bill.name == _availableBills[4].name) {
-                    if (bill.optionalNumerical >= _politicalParties.size()) {
-                        cerr << "Something went wrong (the political party does not exist)" << endl;
-                        exit(EXIT_FAILURE);
+                cout << "The bill has been sent to "
+                     << (_theConsitution.governmentForm == GovernmentFormOption::Republic ? "President " : "Monarch ")
+                     << _headOfGovernmentParty->name << endl;
+                bool isSigned = false;
+                if (_headOfGovernmentParty == _playerParty) {
+                    bool validInput = false;
+                    while (!validInput) {
+                        cout << "As "
+                             << (_theConsitution.governmentForm == GovernmentFormOption::Republic ? "President" : "Monarch")
+                             << ", your party must sign or reject " << bill.name << endl;
+                        cout << PRESIDENTIAL_DECISION << endl;
+                        cout << INPUT;
+                        cout.flush();
+                        cin >> userInput;
+                        if (userInput == "1") { isSigned = true; validInput = true; }
+                        else if (userInput == "2") { validInput = true; }
+                        else { cout << "Invalid option" << endl; }
                     }
-                    PoliticalParty& party = _politicalParties[bill.optionalNumerical];
-                    makePoliticalPartyOutlawed(party);
                 }
-                else if (bill.name == _availableBills[5].name) {
-                    if (bill.optionalNumerical >= _politicalParties.size()) {
-                        cerr << "Something went wrong (the political party does not exist)" << endl;
-                        exit(EXIT_FAILURE);
+                else {
+                    uint8_t supportCount = 0;
+                    uint8_t oppositionCount = 0;
+                    for (unsigned char i = 0; i < _headOfGovernmentParty->ideology.preferences.size(); i++) {
+                        if (_headOfGovernmentParty->ideology.preferences[i] > bill.preferences.preferences[i]) { supportCount++; }
+                        else if (_headOfGovernmentParty->ideology.preferences[i] < bill.preferences.preferences[i]) { oppositionCount++; }
                     }
-                    PoliticalParty& party = _politicalParties[bill.optionalNumerical];
-                    makePoliticalPartyLegal(party);
+                    if (supportCount > oppositionCount) { isSigned = true; }
                 }
-                else { cerr << "Something went wrong (bill is non-existent)" << endl; exit(EXIT_FAILURE); }
+                if (isSigned) {
+                    cout << "The "
+                         << (_theConsitution.governmentForm == GovernmentFormOption::Republic ? "President" : "Monarch")
+                         << " has SIGNED the bill, it is now law" << endl;
+                    if (bill.name == _availableBills[0].name) { _theConsitution.editElectionRate(bill.optionalNumerical); }
+                    else if (bill.name == _availableBills[1].name) { _theConsitution.editVotesRequiredForConstitutionalBills(bill.optionalVotesRequired); }
+                    else if (bill.name == _availableBills[2].name) { _theConsitution.editVotesRequiredForSimpleBills(bill.optionalVotesRequired); }
+                    else if (bill.name == _availableBills[3].name) { _theConsitution.editElectoralSystem(bill.optionalElectoralSystem); }
+                    else if (bill.name == _availableBills[4].name) {
+                        if (bill.optionalNumerical >= _politicalParties.size()) {
+                            cerr << "Something went wrong (the political party does not exist)" << endl;
+                            exit(EXIT_FAILURE);
+                        }
+                        PoliticalParty& party = _politicalParties[bill.optionalNumerical];
+                        makePoliticalPartyOutlawed(party);
+                    }
+                    else if (bill.name == _availableBills[5].name) {
+                        if (bill.optionalNumerical >= _politicalParties.size()) {
+                            cerr << "Something went wrong (the political party does not exist)" << endl;
+                            exit(EXIT_FAILURE);
+                        }
+                        PoliticalParty& party = _politicalParties[bill.optionalNumerical];
+                        makePoliticalPartyLegal(party);
+                    }
+                    else if (bill.name == _availableBills[6].name) { _theConsitution.editGovernmentForm(bill.optionalGovernmentForm); }
+                    else { cerr << "Something went wrong (bill is non-existent)" << endl; exit(EXIT_FAILURE); }
+                }
+                else {
+                    cout << "The "
+                         << (_theConsitution.governmentForm == GovernmentFormOption::Republic ? "President" : "Monarch")
+                         << " has REJECTED the bill, it will not become law" << endl;
+                }
             } else {
                 cout << "The bill has been REJECTED with the votes of " << ayeVotes << "-" << abstainVotes << "-" << nayVotes << " (Aye-Abstain-Nay)" << endl;
             }
@@ -437,7 +522,8 @@ class ParliamentEmulation {
                 48,
                 VotesRequiredOption::TwoThirds,
                 VotesRequiredOption::RelativeMajority,
-                ElectoralSystemOption::Proportional
+                ElectoralSystemOption::Proportional,
+                GovernmentFormOption::Republic
             };
             _electionTurn = _theConsitution.electionRate;
             for (unsigned char i = 0; i < amountOfParties; i++) {
@@ -483,6 +569,7 @@ class ParliamentEmulation {
             }
             const uint8_t playerPartyIndex = rand() % _politicalParties.size();
             _playerParty = &_politicalParties[playerPartyIndex];
+            electPresident();
         }
         void run(void) {
             bool stopFlag = false;
@@ -495,6 +582,10 @@ class ParliamentEmulation {
                     startElections(_theConsitution.electoralSystem);
                     cout << "Elections concluded" << endl;
                     for (PoliticalParty& party : _politicalParties) { cout << party.name << " now has " << party.parliamentSeats << " seats in the parliament" << endl; }
+                    if (_theConsitution.governmentForm == GovernmentFormOption::Republic) {
+                        cout << _headOfGovernmentParty->name << " won the presidency with " << _headOfGovernmentParty->approvalPercentage << "% approval" << endl;
+                    }
+                    else { cout << "Monarch " << _headOfGovernmentParty->name << " remains head of government" << endl; }
                     inputAnythingToContinue(userInput);
                 }
                 if (!_pendingBills.empty()) {
@@ -505,7 +596,12 @@ class ParliamentEmulation {
                 system("clear");
                 cout << "Current turn is " << _currentTurn << endl;
                 cout << "Your party is " << _playerParty->name << endl;
+                cout << (_theConsitution.governmentForm == GovernmentFormOption::Republic ? "President: " : "Monarch: ")
+                     << _headOfGovernmentParty->name << endl;
                 cout << MENU << endl;
+                cout << "Form of government: "
+                     << (_theConsitution.governmentForm == GovernmentFormOption::Republic ? "Republic" : "Monarchy")
+                     << endl;
                 cout << "Electoral system: "
                      << (_theConsitution.electoralSystem == ElectoralSystemOption::Proportional
                          ? "Proportional"
@@ -540,6 +636,7 @@ class ParliamentEmulation {
                                 _availableBills[0],
                                 stoi(userInput),
                                 nullopt,
+                                nullopt,
                                 nullopt
                             );
                         }
@@ -553,6 +650,7 @@ class ParliamentEmulation {
                                     _availableBills[1],
                                     nullopt,
                                     VotesRequiredOption::RelativeMajority,
+                                    nullopt,
                                     nullopt
                                 );
                             }
@@ -561,6 +659,7 @@ class ParliamentEmulation {
                                     _availableBills[1],
                                     nullopt,
                                     VotesRequiredOption::FiftyPercentPlusOne,
+                                    nullopt,
                                     nullopt
                                 );
                             }
@@ -569,6 +668,7 @@ class ParliamentEmulation {
                                     _availableBills[1],
                                     nullopt,
                                     VotesRequiredOption::TwoThirds,
+                                    nullopt,
                                     nullopt
                                 );
                             }
@@ -577,6 +677,7 @@ class ParliamentEmulation {
                                     _availableBills[1],
                                     nullopt,
                                     VotesRequiredOption::ThreeFourths,
+                                    nullopt,
                                     nullopt
                                 );
                             }
@@ -592,6 +693,7 @@ class ParliamentEmulation {
                                     _availableBills[2],
                                     nullopt,
                                     VotesRequiredOption::RelativeMajority,
+                                    nullopt,
                                     nullopt
                                 );
                             }
@@ -600,6 +702,7 @@ class ParliamentEmulation {
                                     _availableBills[2],
                                     nullopt,
                                     VotesRequiredOption::FiftyPercentPlusOne,
+                                    nullopt,
                                     nullopt
                                 );
                             }
@@ -608,6 +711,7 @@ class ParliamentEmulation {
                                     _availableBills[2],
                                     nullopt,
                                     VotesRequiredOption::TwoThirds,
+                                    nullopt,
                                     nullopt
                                 );
                             }
@@ -616,6 +720,7 @@ class ParliamentEmulation {
                                     _availableBills[2],
                                     nullopt,
                                     VotesRequiredOption::ThreeFourths,
+                                    nullopt,
                                     nullopt
                                 );
                             }
@@ -631,7 +736,8 @@ class ParliamentEmulation {
                                     _availableBills[3],
                                     nullopt,
                                     nullopt,
-                                    ElectoralSystemOption::Proportional
+                                    ElectoralSystemOption::Proportional,
+                                    nullopt
                                 );
                             }
                             else if (userInput == "2") {
@@ -639,7 +745,8 @@ class ParliamentEmulation {
                                     _availableBills[3],
                                     nullopt,
                                     nullopt,
-                                    ElectoralSystemOption::Majoritarian
+                                    ElectoralSystemOption::Majoritarian,
+                                    nullopt
                                 );
                             }
                             else { cout << "Invalid option" << endl; inputAnythingToContinue(userInput); }
@@ -669,6 +776,7 @@ class ParliamentEmulation {
                                         proposeBill(
                                             _availableBills[4],
                                             selectedPartyIndex,
+                                            nullopt,
                                             nullopt,
                                             nullopt
                                         );
@@ -705,6 +813,7 @@ class ParliamentEmulation {
                                             _availableBills[5],
                                             selectedPartyIndex,
                                             nullopt,
+                                            nullopt,
                                             nullopt
                                         );
                                     }
@@ -713,6 +822,31 @@ class ParliamentEmulation {
                             catch (const exception&) {
                                 cout << "Invalid option" << endl;
                             }
+                        }
+                        else if (userInput == "7") {
+                            cout << GOVERNMENT_FORM_OPTIONS << endl;
+                            cout << INPUT;
+                            cout.flush();
+                            cin >> userInput;
+                            if (userInput == "1") {
+                                proposeBill(
+                                    _availableBills[6],
+                                    nullopt,
+                                    nullopt,
+                                    nullopt,
+                                    GovernmentFormOption::Republic
+                                );
+                            }
+                            else if (userInput == "2") {
+                                proposeBill(
+                                    _availableBills[6],
+                                    nullopt,
+                                    nullopt,
+                                    nullopt,
+                                    GovernmentFormOption::Monarchy
+                                );
+                            }
+                            else { cout << "Invalid option" << endl; }
                         }
                         else { cout << "Invalid option" << endl; }
                         inputAnythingToContinue(userInput);
