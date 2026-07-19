@@ -31,6 +31,8 @@ const string PROPOSE_BILL = R"(
 2. Amend votes required for constitutional bills.
 3. Amend votes required for simple bills.
 4. Amend electoral system.
+5. Outlaw a political party.
+6. Legalize a political party.
 
 )";
 
@@ -91,6 +93,7 @@ class ParliamentEmulation {
             float approvalPercentage;
             uint16_t parliamentSeats;
             Ideology ideology;
+            bool isOutlawed;
         };
         struct Bill {
             string name;
@@ -106,20 +109,10 @@ class ParliamentEmulation {
             VotesRequiredOption votesRequiredForConstitutionalBills;
             VotesRequiredOption votesRequiredForSimpleBills;
             ElectoralSystemOption electoralSystem;
-            vector<PoliticalParty> outlawedPoliticalParties;
             void editElectionRate(uint16_t newRate) { electionRate = newRate; }
             void editVotesRequiredForConstitutionalBills(VotesRequiredOption newRequirement) { votesRequiredForConstitutionalBills = newRequirement; }
             void editVotesRequiredForSimpleBills(VotesRequiredOption newRequirement) { votesRequiredForSimpleBills = newRequirement; }
             void editElectoralSystem(ElectoralSystemOption newSystem) { electoralSystem = newSystem; }
-            void addAnOutlawedPoliticalParty(PoliticalParty& party) { outlawedPoliticalParties.push_back(party); }
-            void removeAnOutlawedPoliticalParty(PoliticalParty& party) {
-                for (unsigned char i = 0; i < outlawedPoliticalParties.size(); i++) {
-                    if (outlawedPoliticalParties[i].name == party.name) {
-                        outlawedPoliticalParties.erase(outlawedPoliticalParties.begin() + i);
-                        return;
-                    } 
-                }
-            }
         };
         const Ideology _nationalism = {
             3,
@@ -149,7 +142,7 @@ class ParliamentEmulation {
             0,
             0,
         };
-        const array<Bill, 5> _availableBills = {{
+        const array<Bill, 6> _availableBills = {{
             {
                 "amendElectionRate",
                 { 0, -2, -1, -1, -1 },
@@ -174,10 +167,14 @@ class ParliamentEmulation {
                 "outlawPoliticalParty",
                 { 0, -3, -1, -2, -2 },
                 BillType::Constitutional,
+            },
+            {
+                "legalizePoliticalParty",
+                { 0, 3, 1, 2, 2 },
+                BillType::Constitutional,
             }
         }};
         vector<PoliticalParty> _politicalParties;
-        vector<PoliticalParty> _outlawedPoliticalParties;
         vector<Bill> _pendingBills;
         PoliticalParty* _playerParty;
         Constitution _theConsitution;
@@ -196,6 +193,8 @@ class ParliamentEmulation {
             else if (billType == BillType::Simple) { return _theConsitution.votesRequiredForSimpleBills; }
             else { cerr << "Something unexpected happened (the BillType is not constitutional nor simple)" << endl; exit(EXIT_FAILURE); }
         }
+        void makePoliticalPartyOutlawed(PoliticalParty& party) { party.isOutlawed = true; }
+        void makePoliticalPartyLegal(PoliticalParty& party) { party.isOutlawed = false; }
         void nextTurn(void) { _currentTurn++; _madeAnActionThisTurn = false; }
         void proposeBill(
                 Bill bill,
@@ -218,6 +217,8 @@ class ParliamentEmulation {
             else if (bill.name == _availableBills[1].name) { _pendingBills.push_back(bill); }
             else if (bill.name == _availableBills[2].name) { _pendingBills.push_back(bill); }
             else if (bill.name == _availableBills[3].name) { _pendingBills.push_back(bill); }
+            else if (bill.name == _availableBills[4].name) { _pendingBills.push_back(bill); }
+            else if (bill.name == _availableBills[5].name) { _pendingBills.push_back(bill); }
             else { cerr << "Something unexpected happened (the bill name doesn't fit into any available bills)" << endl; }
             _madeAnActionThisTurn = true;
             _submittedBillThisTurn = true;
@@ -230,7 +231,10 @@ class ParliamentEmulation {
         }
         bool checkIfApprovalRatesAreRight(void) {
             float sumFloat = 0;
-            for (PoliticalParty& party : _politicalParties) { sumFloat += party.approvalPercentage; }
+            for (PoliticalParty& party : _politicalParties) {
+                if (party.isOutlawed) { continue; }
+                sumFloat += party.approvalPercentage;
+            }
             sumFloat = round(sumFloat);
             if (sumFloat == 100) { return true; }
             else { return false; }
@@ -238,7 +242,15 @@ class ParliamentEmulation {
         void correctifyApprovalRates(void) {
             bool wrong = true;
             float sum = 0;
-            for (PoliticalParty& party : _politicalParties) { sum += party.approvalPercentage; }
+            for (PoliticalParty& party : _politicalParties) {
+                if (party.isOutlawed) { continue; }
+                sum += party.approvalPercentage;
+            }
+            for (PoliticalParty& party : _politicalParties) {
+                if (party.isOutlawed) {
+                    party.approvalPercentage = 0;
+                }
+            }
             if (sum > 100) {
                 while (wrong) {
                     if (checkIfApprovalRatesAreRight()) { wrong = false; }
@@ -246,6 +258,7 @@ class ParliamentEmulation {
                         uint8_t highestApprovalRatePartyIndex = 0;
                         float highestApprovalRate = 0;
                         for (unsigned char i = 0; i < _politicalParties.size(); i++) {
+                            if (_politicalParties[i].isOutlawed) { continue; }
                             if (_politicalParties[i].name == _playerParty->name) { continue; }
                             if (_politicalParties[i].approvalPercentage > highestApprovalRate) {
                                 highestApprovalRate = _politicalParties[i].approvalPercentage;
@@ -266,6 +279,7 @@ class ParliamentEmulation {
                         uint8_t lowestApprovalRatePartyIndex = 0;
                         float lowestApprovalRate = 100;
                         for (unsigned char i = 0; i < _politicalParties.size(); i++) {
+                            if (_politicalParties[i].isOutlawed) { continue; }
                             if (_politicalParties[i].name == _playerParty->name) { continue; }
                             if (_politicalParties[i].approvalPercentage < lowestApprovalRate) {
                                 lowestApprovalRate = _politicalParties[i].approvalPercentage;
@@ -389,6 +403,22 @@ class ParliamentEmulation {
                 else if (bill.name == _availableBills[1].name) { _theConsitution.editVotesRequiredForConstitutionalBills(bill.optionalVotesRequired); }
                 else if (bill.name == _availableBills[2].name) { _theConsitution.editVotesRequiredForSimpleBills(bill.optionalVotesRequired); }
                 else if (bill.name == _availableBills[3].name) { _theConsitution.editElectoralSystem(bill.optionalElectoralSystem); }
+                else if (bill.name == _availableBills[4].name) {
+                    if (bill.optionalNumerical >= _politicalParties.size()) {
+                        cerr << "Something went wrong (the political party does not exist)" << endl;
+                        exit(EXIT_FAILURE);
+                    }
+                    PoliticalParty& party = _politicalParties[bill.optionalNumerical];
+                    makePoliticalPartyOutlawed(party);
+                }
+                else if (bill.name == _availableBills[5].name) {
+                    if (bill.optionalNumerical >= _politicalParties.size()) {
+                        cerr << "Something went wrong (the political party does not exist)" << endl;
+                        exit(EXIT_FAILURE);
+                    }
+                    PoliticalParty& party = _politicalParties[bill.optionalNumerical];
+                    makePoliticalPartyLegal(party);
+                }
                 else { cerr << "Something went wrong (bill is non-existent)" << endl; exit(EXIT_FAILURE); }
             } else {
                 cout << "The bill has been REJECTED with the votes of " << ayeVotes << "-" << abstainVotes << "-" << nayVotes << " (Aye-Abstain-Nay)" << endl;
@@ -447,6 +477,7 @@ class ParliamentEmulation {
                     partyApprovalPercentage,
                     partyParlimentarySeats,
                     partyIdeology,
+                    false,
                 };
                 _politicalParties.push_back(party);
             }
@@ -612,6 +643,76 @@ class ParliamentEmulation {
                                 );
                             }
                             else { cout << "Invalid option" << endl; inputAnythingToContinue(userInput); }
+                        }
+                        else if (userInput == "5") {
+                            cout << "Select a political party to outlaw:" << endl;
+                            for (unsigned char i = 0; i < _politicalParties.size(); i++) {
+                                if (&_politicalParties[i] == _playerParty || _politicalParties[i].isOutlawed) { continue; }
+                                cout << i + 1 << ". " << _politicalParties[i].name << endl;
+                            }
+                            cout << INPUT;
+                            cout.flush();
+                            cin >> userInput;
+                            try {
+                                const int selectedParty = stoi(userInput);
+                                const int amountOfPoliticalParties = _politicalParties.size();
+                                if (selectedParty < 1 || selectedParty > amountOfPoliticalParties) {
+                                    cout << "Invalid option" << endl;
+                                }
+                                else {
+                                    const uint16_t selectedPartyIndex = selectedParty - 1;
+                                    PoliticalParty& selectedPoliticalParty = _politicalParties[selectedPartyIndex];
+                                    if (&selectedPoliticalParty == _playerParty || selectedPoliticalParty.isOutlawed) {
+                                        cout << "Invalid option" << endl;
+                                    }
+                                    else {
+                                        proposeBill(
+                                            _availableBills[4],
+                                            selectedPartyIndex,
+                                            nullopt,
+                                            nullopt
+                                        );
+                                    }
+                                }
+                            }
+                            catch (const exception&) {
+                                cout << "Invalid option" << endl;
+                            }
+                        }
+                        else if (userInput == "6") {
+                            cout << "Select a political party to legalize:" << endl;
+                            for (unsigned char i = 0; i < _politicalParties.size(); i++) {
+                                if (!_politicalParties[i].isOutlawed) { continue; }
+                                cout << i + 1 << ". " << _politicalParties[i].name << endl;
+                            }
+                            cout << INPUT;
+                            cout.flush();
+                            cin >> userInput;
+                            try {
+                                const int selectedParty = stoi(userInput);
+                                const int amountOfPoliticalParties = _politicalParties.size();
+                                if (selectedParty < 1 || selectedParty > amountOfPoliticalParties) {
+                                    cout << "Invalid option" << endl;
+                                }
+                                else {
+                                    const uint16_t selectedPartyIndex = selectedParty - 1;
+                                    PoliticalParty& selectedPoliticalParty = _politicalParties[selectedPartyIndex];
+                                    if (!selectedPoliticalParty.isOutlawed) {
+                                        cout << "Invalid option" << endl;
+                                    }
+                                    else {
+                                        proposeBill(
+                                            _availableBills[5],
+                                            selectedPartyIndex,
+                                            nullopt,
+                                            nullopt
+                                        );
+                                    }
+                                }
+                            }
+                            catch (const exception&) {
+                                cout << "Invalid option" << endl;
+                            }
                         }
                         else { cout << "Invalid option" << endl; }
                         inputAnythingToContinue(userInput);
