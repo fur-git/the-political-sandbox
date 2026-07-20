@@ -19,7 +19,18 @@ const string MENU = R"(
 3. Propose a bill.
 4. See pending bills.
 5. See parties approval rates.
-6. DEBUG: Skip to elections.
+6. Act as monarch.
+7. Attempt a revolution.
+8. DEBUG: Skip to elections.
+
+)";
+
+const string MONARCH_MENU = R"(
+
+1. Commence early elections.
+2. Royally endorse a political party.
+3. Grant a royal pardon to an outlawed political party.
+4. Return to party menu.
 
 )";
 
@@ -206,6 +217,7 @@ class ParliamentEmulation {
         vector<Bill> _pendingBills;
         PoliticalParty* _playerParty;
         PoliticalParty* _headOfGovernmentParty;
+        string _headOfGovernmentName;
         Constitution _theConsitution;
         uint16_t _totalParlimentarySeats;
         uint16_t _currentTurn;
@@ -225,6 +237,28 @@ class ParliamentEmulation {
         void makePoliticalPartyOutlawed(PoliticalParty& party) { party.isOutlawed = true; }
         void makePoliticalPartyLegal(PoliticalParty& party) { party.isOutlawed = false; }
         void nextTurn(void) { _currentTurn++; _madeAnActionThisTurn = false; }
+        string generateHeadOfGovernmentName(GovernmentFormOption governmentForm) {
+            const array<string, 10> firstNames = {
+                "Alexander", "Benjamin", "Clara", "Diana", "Edward",
+                "Elena", "Frederick", "Maria", "Nicholas", "Victoria"
+            };
+            const string firstName = firstNames[rand() % firstNames.size()];
+            if (governmentForm == GovernmentFormOption::Monarchy) {
+                const array<string, 10> romanNumerals = {
+                    "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"
+                };
+                return firstName + " " + romanNumerals[rand() % romanNumerals.size()];
+            }
+
+            const array<string, 10> lastNames = {
+                "Anderson", "Bennett", "Carter", "Foster", "Hayes",
+                "Morgan", "Petrov", "Reed", "Sullivan", "Walker"
+            };
+            return firstName + " " + lastNames[rand() % lastNames.size()];
+        }
+        string headOfGovernmentDisplayName(void) const {
+            return _headOfGovernmentName + " (" + _headOfGovernmentParty->name + ")";
+        }
         void electPresident(void) {
             uint8_t highestApprovalRatePartyIndex = 0;
             float highestApprovalRate = 0;
@@ -236,6 +270,7 @@ class ParliamentEmulation {
                 }
             }
             _headOfGovernmentParty = &_politicalParties[highestApprovalRatePartyIndex];
+            _headOfGovernmentName = generateHeadOfGovernmentName(GovernmentFormOption::Republic);
         }
         void proposeBill(
                 Bill bill,
@@ -339,8 +374,8 @@ class ParliamentEmulation {
                 }
             }
         }
-        void startElections(ElectoralSystemOption electoralSystem) {
-            switch (electoralSystem) {
+        void startElections(void) {
+            switch (_theConsitution.electoralSystem) {
                 case ElectoralSystemOption::Proportional: {
                     for (PoliticalParty& party : _politicalParties) {
                         party.parliamentSeats = _totalParlimentarySeats * (party.approvalPercentage / 100);
@@ -366,7 +401,145 @@ class ParliamentEmulation {
                 }
             }
             if (_theConsitution.governmentForm == GovernmentFormOption::Republic) { electPresident(); }
-            _electionTurn += _theConsitution.electionRate;
+            _electionTurn = _currentTurn + _theConsitution.electionRate;
+        }
+        void displayElectionResults(void) {
+            cout << "Elections concluded" << endl;
+            for (PoliticalParty& party : _politicalParties) {
+                cout << party.name << " now has " << party.parliamentSeats << " seats in the parliament" << endl;
+            }
+            if (_theConsitution.governmentForm == GovernmentFormOption::Republic) {
+                cout << headOfGovernmentDisplayName() << " won the presidency with "
+                     << _headOfGovernmentParty->approvalPercentage << "% approval" << endl;
+            }
+            else { cout << "Monarch " << headOfGovernmentDisplayName() << " remains head of government" << endl; }
+        }
+        void attemptRevolution(void) {
+            if (_playerParty->isOutlawed) {
+                cout << "An outlawed political party cannot attempt a revolution" << endl;
+                return;
+            }
+
+            _madeAnActionThisTurn = true;
+            if (rand() % 4 == 0) {
+                for (PoliticalParty& party : _politicalParties) {
+                    party.parliamentSeats = 0;
+                }
+                _playerParty->parliamentSeats = _totalParlimentarySeats;
+                _headOfGovernmentParty = _playerParty;
+                _headOfGovernmentName = generateHeadOfGovernmentName(_theConsitution.governmentForm);
+                cout << "The revolution succeeded! " << _playerParty->name
+                     << " now holds all " << _totalParlimentarySeats
+                     << " seats, and " << headOfGovernmentDisplayName()
+                     << " is head of government" << endl;
+            }
+            else {
+                makePoliticalPartyOutlawed(*_playerParty);
+                cout << "The revolution failed! " << _playerParty->name
+                     << " has been outlawed" << endl;
+            }
+        }
+        void royallyEndorsePoliticalParty(void) {
+            string userInput;
+            cout << "Select a political party to endorse:" << endl;
+            for (unsigned char i = 0; i < _politicalParties.size(); i++) {
+                if (_politicalParties[i].isOutlawed) { continue; }
+                cout << i + 1 << ". " << _politicalParties[i].name << endl;
+            }
+            cout << INPUT;
+            cout.flush();
+            cin >> userInput;
+            try {
+                const uint8_t selectedParty = stoi(userInput);
+                const uint8_t amountOfPoliticalParties = _politicalParties.size();
+                if (selectedParty < 1 || selectedParty > amountOfPoliticalParties) {
+                    cout << "Invalid option" << endl;
+                }
+                else {
+                    const uint16_t selectedPartyIndex = selectedParty - 1;
+                    PoliticalParty& endorsedParty = _politicalParties[selectedPartyIndex];
+                    if (endorsedParty.isOutlawed) {
+                        cout << "Invalid option" << endl;
+                    }
+                    else {
+                        endorsedParty.approvalPercentage += 5;
+                        _madeAnActionThisTurn = true;
+                        cout << endorsedParty.name << " received the Monarch's endorsement" << endl;
+                    }
+                }
+            }
+            catch (const exception&) { cout << "Invalid option" << endl; }
+        }
+        void grantRoyalPardon(void) {
+            string userInput;
+            bool hasOutlawedParty = false;
+            cout << "Select an outlawed political party to pardon:" << endl;
+            for (unsigned char i = 0; i < _politicalParties.size(); i++) {
+                if (!_politicalParties[i].isOutlawed) { continue; }
+                hasOutlawedParty = true;
+                cout << i + 1 << ". " << _politicalParties[i].name << endl;
+            }
+            if (!hasOutlawedParty) {
+                cout << "There are no outlawed political parties to pardon" << endl;
+                return;
+            }
+            cout << INPUT;
+            cout.flush();
+            cin >> userInput;
+            try {
+                const uint8_t selectedParty = stoi(userInput);
+                const uint8_t amountOfPoliticalParties = _politicalParties.size();
+                if (selectedParty < 1 || selectedParty > amountOfPoliticalParties) {
+                    cout << "Invalid option" << endl;
+                }
+                else {
+                    const uint16_t selectedPartyIndex = selectedParty - 1;
+                    PoliticalParty& pardonedParty = _politicalParties[selectedPartyIndex];
+                    if (!pardonedParty.isOutlawed) {
+                        cout << "Invalid option" << endl;
+                    }
+                    else {
+                        makePoliticalPartyLegal(pardonedParty);
+                        _playerParty->approvalPercentage -= 5;
+                        _madeAnActionThisTurn = true;
+                        cout << pardonedParty.name << " received a royal pardon" << endl;
+                        cout << _playerParty->name << " lost 5% approval" << endl;
+                    }
+                }
+            }
+            catch (const exception&) { cout << "Invalid option" << endl; }
+        }
+        void openMonarchMenu(void) {
+            string userInput;
+            system("clear");
+            cout << MONARCH_MENU << endl;
+            cout << INPUT;
+            cout.flush();
+            cin >> userInput;
+            if (userInput == "1") {
+                if (_madeAnActionThisTurn) { cout << "You cannot make any other actions this turn" << endl; }
+                else {
+                    _electionTurn = _currentTurn + 1;
+                    _madeAnActionThisTurn = true;
+                    cout << "Early elections will be held next turn" << endl;
+                }
+                inputAnythingToContinue(userInput);
+            }
+            else if (userInput == "2") {
+                if (_madeAnActionThisTurn) { cout << "You cannot make any other actions this turn" << endl; }
+                else { royallyEndorsePoliticalParty(); }
+                inputAnythingToContinue(userInput);
+            }
+            else if (userInput == "3") {
+                if (_madeAnActionThisTurn) { cout << "You cannot make any other actions this turn" << endl; }
+                else { grantRoyalPardon(); }
+                inputAnythingToContinue(userInput);
+            }
+            else if (userInput == "4") { return; }
+            else {
+                cout << "Invalid option" << endl;
+                inputAnythingToContinue(userInput);
+            }
         }
         void voteOnBill(Bill& bill) {
             VotesRequiredOption requiredVotes;
@@ -447,7 +620,7 @@ class ParliamentEmulation {
                 cout << "The bill has been PASSED with the votes of " << ayeVotes << "-" << abstainVotes << "-" << nayVotes << " (Aye-Abstain-Nay)" << endl;
                 cout << "The bill has been sent to "
                      << (_theConsitution.governmentForm == GovernmentFormOption::Republic ? "President " : "Monarch ")
-                     << _headOfGovernmentParty->name << endl;
+                     << headOfGovernmentDisplayName() << endl;
                 bool isSigned = false;
                 if (_headOfGovernmentParty == _playerParty) {
                     bool validInput = false;
@@ -497,7 +670,12 @@ class ParliamentEmulation {
                         PoliticalParty& party = _politicalParties[bill.optionalNumerical];
                         makePoliticalPartyLegal(party);
                     }
-                    else if (bill.name == _availableBills[6].name) { _theConsitution.editGovernmentForm(bill.optionalGovernmentForm); }
+                    else if (bill.name == _availableBills[6].name) {
+                        if (_theConsitution.governmentForm != bill.optionalGovernmentForm) {
+                            _theConsitution.editGovernmentForm(bill.optionalGovernmentForm);
+                            _headOfGovernmentName = generateHeadOfGovernmentName(bill.optionalGovernmentForm);
+                        }
+                    }
                     else { cerr << "Something went wrong (bill is non-existent)" << endl; exit(EXIT_FAILURE); }
                 }
                 else {
@@ -579,13 +757,8 @@ class ParliamentEmulation {
                 _submittedBillThisTurn = false;
                 if (!checkIfApprovalRatesAreRight()) { correctifyApprovalRates(); }
                 if (_electionTurn == _currentTurn) {
-                    startElections(_theConsitution.electoralSystem);
-                    cout << "Elections concluded" << endl;
-                    for (PoliticalParty& party : _politicalParties) { cout << party.name << " now has " << party.parliamentSeats << " seats in the parliament" << endl; }
-                    if (_theConsitution.governmentForm == GovernmentFormOption::Republic) {
-                        cout << _headOfGovernmentParty->name << " won the presidency with " << _headOfGovernmentParty->approvalPercentage << "% approval" << endl;
-                    }
-                    else { cout << "Monarch " << _headOfGovernmentParty->name << " remains head of government" << endl; }
+                    startElections();
+                    displayElectionResults();
                     inputAnythingToContinue(userInput);
                 }
                 if (!_pendingBills.empty()) {
@@ -597,7 +770,7 @@ class ParliamentEmulation {
                 cout << "Current turn is " << _currentTurn << endl;
                 cout << "Your party is " << _playerParty->name << endl;
                 cout << (_theConsitution.governmentForm == GovernmentFormOption::Republic ? "President: " : "Monarch: ")
-                     << _headOfGovernmentParty->name << endl;
+                     << headOfGovernmentDisplayName() << endl;
                 cout << MENU << endl;
                 cout << "Form of government: "
                      << (_theConsitution.governmentForm == GovernmentFormOption::Republic ? "Republic" : "Monarchy")
@@ -619,7 +792,22 @@ class ParliamentEmulation {
                     inputAnythingToContinue(userInput);
                 }
                 else if (userInput == "5") { displayPartyApprovalRates(); inputAnythingToContinue(userInput); }
-                else if (userInput == "6") { _currentTurn = _electionTurn - 1; }
+                else if (userInput == "6") {
+                    if (_theConsitution.governmentForm != GovernmentFormOption::Monarchy) {
+                        cout << "Monarch actions are only available in a monarchy" << endl;
+                        inputAnythingToContinue(userInput);
+                    }
+                    else if (_headOfGovernmentParty != _playerParty) {
+                        cout << "Only the party holding the head of government position can act as Monarch" << endl;
+                        inputAnythingToContinue(userInput);
+                    }
+                    else { openMonarchMenu(); }
+                }
+                else if (userInput == "7") {
+                    attemptRevolution();
+                    inputAnythingToContinue(userInput);
+                }
+                else if (userInput == "8") { _currentTurn = _electionTurn - 1; }
                 else if (_madeAnActionThisTurn) { cout << "You cannot make any other actions this turn" << endl; inputAnythingToContinue(userInput); }
                 else if (userInput == "3") {
                     if (!_pendingBills.empty()) { cout << "A bill is already pending" << endl; inputAnythingToContinue(userInput); }
